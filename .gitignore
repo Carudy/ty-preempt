@@ -1,0 +1,12 @@
+log/*
+process_logs/*
+*_db
+record/triedb/*
+
+.vscode
+.zed
+
+.DS_Store
+*.log
+
+blockexe
