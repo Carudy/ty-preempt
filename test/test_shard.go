@@ -74,7 +74,6 @@ func Test_shard() {
 	if err != nil {
 		log.Panic()
 	}
-	// defer file.Close()
 
 	r := csv.NewReader(file)
 	_, err = r.Read()
@@ -113,17 +112,6 @@ func Test_shard() {
 	}
 	isExist = nil
 
-	// if config.NodeID == "N0" {
-	// 	// config.Path = testFile
-	// 	// csvFile, err := os.Create("./log/" + shardID + "_requesttime.csv")
-	// 	// if err != nil {
-	// 	// 	log.Panic(err)
-	// 	// }
-	// 	// requestlog = csv.NewWriter(csvFile)
-	// 	// requestlog.Write([]string{"txid", "waiting_time", "is_ctx", "1st_queueing_time", "2nd_queueing_time"})
-	// 	// requestlog.Flush()
-	// }
-
 	if _, ok := params.NodeTable[shardID][nodeID]; ok {
 		node = shard.NewNode()
 	} else {
@@ -134,11 +122,4 @@ func Test_shard() {
 
 	<-node.P.Stop
 	fmt.Printf("节点收到终止节点消息，停止运行\n")
-
-	// node.P.Node.CurChain.StatusTrie.PrintState()
-	// fmt.Println(account.Account2Shard)
-	// fmt.Println(account.AccountInOwnShard)
-	// for _,v := range node.P.Node.CurChain.Tx_pool.Queue {
-	// 	v.PrintTx()
-	// }
 }

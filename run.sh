@@ -3,7 +3,7 @@
 # Basic Blockchain Shard Network Runner
 # Sets num_shards and num_nodes variables and starts all nodes
 ./kill_blockexe.sh  # Kill any existing blockexe processes
-./clean_db.sh
+./clean.sh
 # Configuration variables - edit these as needed
 num_shards=4      # Number of shards (S0, S1, S2, S3)
 num_nodes=2       # Number of nodes per shard (N0, N1)

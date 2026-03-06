@@ -119,7 +119,7 @@ var (
 		MigrateBeforeInject:      false,
 		OnlyOnce:                 100,
 		Not_Lock_immediately:     true,
-		RelayLock:                false,
+		RelayLock:                true,
 	}
 
 	Init_addrs          = []string{}
