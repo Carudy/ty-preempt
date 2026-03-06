@@ -16,6 +16,7 @@ import (
 var (
 	node          *shard.Node
 	shard_num     int
+	node_num      int
 	shardID       string
 	malicious_num int
 	nodeID        string
@@ -26,7 +27,8 @@ var (
 )
 
 func Test_shard() {
-	flag.IntVarP(&shard_num, "shard_num", "S", 1, "indicate that how many shards are deployed")
+	flag.IntVarP(&shard_num, "shard_num", "S", 2, "indicate that how many shards are deployed")
+	flag.IntVarP(&node_num, "node_num", "N", 2, "indicate that how many shards are deployed")
 	flag.StringVarP(&shardID, "shardID", "s", "", "id of the shard to which this node belongs, for example, S0")
 	flag.IntVarP(&malicious_num, "malicious_num", "f", 1, "indicate the maximum of malicious nodes in one shard")
 	flag.StringVarP(&nodeID, "nodeID", "n", "", "id of this node, for example, N0")
@@ -34,6 +36,8 @@ func Test_shard() {
 	flag.BoolVarP(&isClient, "client", "c", false, "whether this node is a client")
 
 	flag.Parse()
+
+	params.RenewShardTable(shard_num, node_num)
 
 	if isClient {
 		if testFile == "" {
@@ -78,11 +82,10 @@ func Test_shard() {
 		log.Panic()
 	}
 
-
 	// 初始化读取所有账户
 	isExist := make(map[string]bool)
-	for i:=0; i<1000000; i++{
-	// for i:=0; i<500000; i++{
+	for i := 0; i < 1000000; i++ {
+		// for i:=0; i<500000; i++{
 		row, err := r.Read()
 		// fmt.Printf("%v %v %v\n", row[0][2:], row[1][2:], row[2])
 		if err != nil && err != io.EOF {
@@ -92,8 +95,8 @@ func Test_shard() {
 			break
 		}
 		senderstr, recipientstr := row[1][2:], row[2][2:]
-		if path=="0to999999_BlockTransaction.csv" || path=="300W.csv"  || path=="100W.csv"  || path=="20W.csv"  || path=="50W.csv" || path=="200W.csv" {
-			if row[5] != "None" || row[6] == "1" || row[7] == "1" || len(row[4][2:]) != 40 || len(row[3][2:]) != 40 || row[4]==row[3] {
+		if path == "0to999999_BlockTransaction.csv" || path == "300W.csv" || path == "100W.csv" || path == "20W.csv" || path == "50W.csv" || path == "200W.csv" {
+			if row[5] != "None" || row[6] == "1" || row[7] == "1" || len(row[4][2:]) != 40 || len(row[3][2:]) != 40 || row[4] == row[3] {
 				continue
 			}
 			senderstr, recipientstr = row[3][2:], row[4][2:]
@@ -128,7 +131,6 @@ func Test_shard() {
 	}
 
 	file.Close()
-
 
 	<-node.P.Stop
 	fmt.Printf("节点收到终止节点消息，停止运行\n")

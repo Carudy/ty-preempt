@@ -3,9 +3,10 @@
 # Basic Blockchain Shard Network Runner
 # Sets num_shards and num_nodes variables and starts all nodes
 ./kill_blockexe.sh  # Kill any existing blockexe processes
+./clean_db.sh
 # Configuration variables - edit these as needed
-num_shards=2      # Number of shards (S0, S1, S2, S3)
-num_nodes=1       # Number of nodes per shard (N0, N1)
+num_shards=4      # Number of shards (S0, S1, S2, S3)
+num_nodes=2       # Number of nodes per shard (N0, N1)
 malicious_num=1   # Maximum malicious nodes per shard
 test_file="20W.csv"  # Test file
 
@@ -54,7 +55,7 @@ for ((s=0; s<num_shards; s++)); do
         echo "Starting $shard_id $node_id..."
 
         # Start node with exact command format from requirements
-        ./blockexe -S $num_shards -s $shard_id -n $node_id -t $test_file > "$log_file" 2>&1 &
+        ./blockexe -S $num_shards -N $num_nodes -s $shard_id -n $node_id -t $test_file > "$log_file" 2>&1 &
 
         pid=$!
         node_pids+=($pid)
@@ -75,8 +76,7 @@ echo "Starting client/supervisor..."
 client_log="$log_dir/client.log"
 
 # Start client with -c flag as requested
-# ./blockexe -c -S $num_shards -s $num_shards -n $((num_nodes+1)) -t $test_file  > "$client_log" 2>&1 &
-./blockexe -c -S $num_shards -t $test_file  > "$client_log" 2>&1 &
+./blockexe -c -S $num_shards -N $num_nodes -t $test_file  > "$client_log" 2>&1 &
 
 client_pid=$!
 node_pids+=($client_pid)
