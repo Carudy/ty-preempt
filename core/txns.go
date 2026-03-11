@@ -10,13 +10,14 @@ import (
 )
 
 type TXns struct {
-	Txann   *TXann
-	MPann   *ProofDB
-	State   *account.AccountState
-	MPstate *ProofDB
-	H       int
-	Address string   `json:"address"`
-	Change  *big.Int `json:"value"`
+	Txann       *TXann
+	MPann       *ProofDB
+	State       *account.AccountState
+	MPstate     *ProofDB
+	H           int
+	Address     string   `json:"address"`
+	Change      *big.Int `json:"value"`
+	IsRepayment bool     `json:"is_repayment"`
 }
 
 // Encode transaction for storing

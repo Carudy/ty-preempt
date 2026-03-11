@@ -12,6 +12,11 @@ import (
 	"time"
 )
 
+var (
+	// Bank managers per shard
+	BankManagers = make(map[int]*BankManager)
+)
+
 type BankManager struct {
 	ShardID       int
 	BankAddress   string
@@ -31,6 +36,8 @@ func NewBankManager(shardID int, initialBalance *big.Int) *BankManager {
 	}
 	// Initialize bank communication
 	bm.Communication = NewBankCommunication(shardID, bm)
+	// Register globally
+	BankManagers[shardID] = bm
 	return bm
 }
 
@@ -40,6 +47,24 @@ func generateBankAddress(shardID int) string {
 	input := fmt.Sprintf("bank_shard_%d_%d", shardID, timestamp)
 	hash := sha256.Sum256([]byte(input))
 	return hex.EncodeToString(hash[:20]) // 20 bytes like Ethereum addresses
+}
+
+func (bm *BankManager) MarkRepaid(loanID string) error {
+	bm.lock.Lock()
+	defer bm.lock.Unlock()
+
+	loan, exists := bm.Loans[loanID]
+	if !exists {
+		return fmt.Errorf("loan %s not found", loanID)
+	}
+
+	if loan.Status != LoanActive {
+		return fmt.Errorf("loan %s is not active", loanID)
+	}
+
+	loan.Status = LoanRepaid
+	log.Printf("Marked loan %s as repaid", loanID)
+	return nil
 }
 
 func (bm *BankManager) CreateLoan(borrower string, amount *big.Int, targetShard int) (*LoanRecord, error) {
@@ -190,12 +215,27 @@ func ScheduleLoanRepayments(migrationData map[string]*big.Int, borrower string, 
 }
 
 // GetLoanInfoForAccount returns loan information for a migrated account
-// This function is a placeholder and will be integrated into migration data preparation.
 func GetLoanInfoForAccount(borrower string, sourceShard int) (map[string]*big.Int, map[string]string, error) {
-	// Placeholder implementation: returns empty maps for now.
-	// Actual implementation would query the BankManager for active loans of the borrower
-	// in the source shard.
-	return make(map[string]*big.Int), make(map[string]string), nil
+	bm, exists := BankManagers[sourceShard]
+	if !exists {
+		return nil, nil, fmt.Errorf("bank manager not found for shard %d", sourceShard)
+	}
+
+	loans := make(map[string]*big.Int)
+	loanIDs := make(map[string]string)
+
+	bm.lock.Lock()
+	defer bm.lock.Unlock()
+
+	for loanID, loan := range bm.Loans {
+		if loan.Borrower == borrower && loan.Status == LoanActive {
+			loans[borrower] = new(big.Int).Set(loan.Amount)
+			loanIDs[borrower] = loanID
+			break // Assume one loan per borrower for simplicity
+		}
+	}
+
+	return loans, loanIDs, nil
 }
 
 // RecordIncomingLoan records a loan that was taken in another shard and needs to be repaid locally

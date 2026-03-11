@@ -17,7 +17,7 @@ import (
 
 func (p *Pbft) handleAnns(anns []*core.TXann, st *trie.Trie, migTree *trie.Trie) (int64, int64) {
 	if len(anns) == 0 {
-		return 0,0
+		return 0, 0
 	}
 	fmt.Printf("handleAnns时是第%v个块\n", p.epoch-1)
 	// unchanged := 0
@@ -30,7 +30,7 @@ func (p *Pbft) handleAnns(anns []*core.TXann, st *trie.Trie, migTree *trie.Trie)
 	// core.TxPoolDeepCopy(&nowqueue, p.Node.CurChain.Tx_pool.Queue)
 	cAps := make(map[string]map[string]*ChangeAndPending) // map[ToShard][Addr]*ChangeAndPending
 	// nss := make(map[string][]*core.TXns)                  // map[ToShard][Addr]*ChangeAndPending
-	isdelete := make(map[string]string)                   // map[Addr]ToShard
+	isdelete := make(map[string]string) // map[Addr]ToShard
 
 	//   1.从本分片账户列表删除，
 	////   2.收集关于该账户的交易，
@@ -61,7 +61,6 @@ func (p *Pbft) handleAnns(anns []*core.TXann, st *trie.Trie, migTree *trie.Trie)
 		// 	account.BalanceBeforeOutLock.Unlock()
 		// }
 
-
 		// if change.BitLen() == 0 {
 		// 	unchanged++
 		// }else {
@@ -81,10 +80,8 @@ func (p *Pbft) handleAnns(anns []*core.TXann, st *trie.Trie, migTree *trie.Trie)
 
 		// 	mpend := time.Now().UnixMicro()
 
-
-			
 		// 	ns := &core.TXns{Txann: ann, MPann: proofDB1, State: state, MPstate: proofDB2, Address: ann.Address}
-			
+
 		// 	ns.Change = new(big.Int).Set(change)
 
 		// 	// 5. 将账户的余额变化放入列表，待会发送
@@ -94,8 +91,6 @@ func (p *Pbft) handleAnns(anns []*core.TXann, st *trie.Trie, migTree *trie.Trie)
 		// 	nss[params.ShardTableInt2Str[ann.ToshardID]] = append(nss[params.ShardTableInt2Str[ann.ToshardID]], ns)
 		// 	mptime += mpend - mpbegin
 		// }
-
-		
 
 		isdelete[ann.Address] = params.ShardTableInt2Str[ann.ToshardID]
 		cAp := &ChangeAndPending{}
@@ -126,8 +121,8 @@ func (p *Pbft) handleAnns(anns []*core.TXann, st *trie.Trie, migTree *trie.Trie)
 					tx.UnlockTime = time.Now().UnixMilli()
 				}
 				// 如果不是(relay或relayLock)且v为接收者，则放回交易池
-				if hex.EncodeToString(tx.Recipient) == ann.Address && !tx.IsRelay && !tx.Relay_Lock{
-					if _,ok := isdelete[hex.EncodeToString(tx.Sender)]; ok || account.Lock_Acc[hex.EncodeToString(tx.Sender)] {
+				if hex.EncodeToString(tx.Recipient) == ann.Address && !tx.IsRelay && !tx.Relay_Lock {
+					if _, ok := isdelete[hex.EncodeToString(tx.Sender)]; ok || account.Lock_Acc[hex.EncodeToString(tx.Sender)] {
 						tx.SenLock = true
 						p.Node.CurChain.Tx_pool.Locking_TX_Pools[hex.EncodeToString(tx.Sender)] = append(p.Node.CurChain.Tx_pool.Locking_TX_Pools[hex.EncodeToString(tx.Sender)], tx)
 						continue
@@ -149,6 +144,25 @@ func (p *Pbft) handleAnns(anns []*core.TXann, st *trie.Trie, migTree *trie.Trie)
 			account.Lock_Acc_Lock.Unlock()
 		}
 
+		// Schedule loan repayments if bank mechanism is enabled
+		if params.Config.EnableBankMechanism {
+			incoming_loans_lock.Lock()
+			if len(incoming_loans) > 0 {
+				for addr, amount := range incoming_loans {
+					repaymentTx := &core.TXns{
+						Address:     addr,
+						Change:      new(big.Int).Neg(amount), // Negative change for repayment
+						IsRepayment: true,
+					}
+					p.Node.CurChain.TXns_pool.AddTXns(repaymentTx)
+					log.Printf("Scheduled repayment for migrated account %s amount %s", addr, amount.String())
+				}
+				// Clear incoming loans after scheduling
+				incoming_loans = make(map[string]*big.Int)
+				incoming_loan_ids = make(map[string]string)
+			}
+			incoming_loans_lock.Unlock()
+		}
 
 		// //   4.将该账户放入内存中的 删除账户队列中， 这个队列将在下一个区块里面
 		// p.Node.CurChain.Delete_pool.AddDelete(del.Address, params.ShardTable[announce.ShardID])
@@ -158,14 +172,13 @@ func (p *Pbft) handleAnns(anns []*core.TXann, st *trie.Trie, migTree *trie.Trie)
 			cAps[params.ShardTableInt2Str[ann.ToshardID]] = make(map[string]*ChangeAndPending)
 		}
 		cAps[params.ShardTableInt2Str[ann.ToshardID]][ann.Address] = cAp
-		
+
 		// nss[params.ShardTableInt2Str[ann.ToshardID]] = append(nss[params.ShardTableInt2Str[ann.ToshardID]], ns)
 	}
 
 	// account.Account2ShardLock.Unlock()
 	// p.Node.CurChain.Tx_pool.Lock.Unlock()
 	// p.Node.CurChain.Tx_pool.Relaypoollock.Unlock()
-
 
 	//   2.将交易池中关于账户的交易收集起来
 	jiaoyichitime := time.Now().UnixMicro()
@@ -205,7 +218,7 @@ func (p *Pbft) handleAnns(anns []*core.TXann, st *trie.Trie, migTree *trie.Trie)
 	// 	}
 	// 	// 否则，啥也不做
 	// }
-	
+
 	j := 0
 	for _, tx := range p.Node.CurChain.Tx_pool.Queue {
 		// 如果sender是要出去的账户，且不是relaytx, 则收集
@@ -270,7 +283,6 @@ func (p *Pbft) handleAnns(anns []*core.TXann, st *trie.Trie, migTree *trie.Trie)
 	// 		account.BalanceBeforeOutLock.Unlock()
 	// 	}
 
-
 	// 	if change.BitLen() == 0 {
 	// 		unchanged++
 	// 	}else {
@@ -315,16 +327,16 @@ func (p *Pbft) handleAnns(anns []*core.TXann, st *trie.Trie, migTree *trie.Trie)
 	// fmt.Println("本节点已将 不变的账户数量 发送到client\n")
 	go p.mpAndSend(isdelete, anns, cAps, st, migTree)
 
-	return endtime-jiaoyichitime, endtime-begintime
+	return endtime - jiaoyichitime, endtime - begintime
 }
 
 func (p *Pbft) mpAndSend(isdelete map[string]string, anns []*core.TXann, cAps map[string]map[string]*ChangeAndPending, st, migTree *trie.Trie) {
 	unchanged := 0
-	nss := make(map[string][]*core.TXns)                  // map[ToShard][Addr]*ChangeAndPending
-	
+	nss := make(map[string][]*core.TXns) // map[ToShard][Addr]*ChangeAndPending
+
 	for _, ann := range anns {
 		// 原本就不在这个分片
-		if _,ok := isdelete[ann.Address];!ok {
+		if _, ok := isdelete[ann.Address]; !ok {
 			continue
 		}
 
@@ -346,10 +358,9 @@ func (p *Pbft) mpAndSend(isdelete map[string]string, anns []*core.TXann, cAps ma
 			account.BalanceBeforeOutLock.Unlock()
 		}
 
-
 		if change.BitLen() == 0 {
 			unchanged++
-		}else {
+		} else {
 			// mpbegin := time.Now().UnixMicro()
 			proofDB1 := &core.ProofDB{}
 			err1 := migTree.Prove(ann.Hash(), 0, proofDB1)

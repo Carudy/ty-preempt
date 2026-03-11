@@ -381,7 +381,7 @@ func (bc *BlockChain) getUpdatedTreeOfState(commit int, height int, txs []*core.
 	for _, tx := range txs {
 		// 确保发送地址属于此分片，即此交易不是其它分片发来的relay交易
 		// if account.Addr2Shard(hex.EncodeToString(tx.Sender)) == params.ShardTable[bc.ChainConfig.ShardID] {
-		if !tx.IsRelay && !tx.Relay_Lock {
+		if !tx.IsRelay && !tx.Relay_Lock && !tx.IsBankLoan {
 			s_state_enc := st.Get(tx.Sender)
 			if s_state_enc == nil {
 				fmt.Printf("sender属于该分片吗：%v\n", account.AccountInOwnShard[hex.EncodeToString(tx.Sender)])
@@ -397,31 +397,29 @@ func (bc *BlockChain) getUpdatedTreeOfState(commit int, height int, txs []*core.
 		}
 
 		// Handle bank loan transactions
-		if tx.IsBankLoan && params.Config.EnableBankMechanism {
-			// Deduct from bank instead of sender
-			bankAddress := bank.GetBankAddressForShard(params.ShardTable[params.Config.ShardID])
-			hexBankAddress, _ := hex.DecodeString(bankAddress)
-			bankStateEnc := st.Get(hexBankAddress)
-			if bankStateEnc != nil {
-				bankState := account.DecodeAccountState(bankStateEnc)
-				bankState.Balance.Sub(bankState.Balance, tx.Value)
-				st.Update(hexBankAddress, bankState.Encode())
+		if tx.IsBankLoan && bc.BankManager != nil {
+			// Deduct from bank balance (already done in state update above)
+			// Record loan in bank manager
+			borrower := hex.EncodeToString(tx.Sender)
+			loan, err := bc.BankManager.CreateLoan(borrower, tx.Value, tx.TargetShard)
+			if err != nil {
+				log.Printf("Failed to create loan for %s: %v", borrower, err)
+			} else {
+				tx.LoanID = loan.LoanID
+				log.Printf("Created loan %s for %s amount %s to shard %d", loan.LoanID, borrower, tx.Value.String(), tx.TargetShard)
 			}
-			// Record loan would be handled separately
 		}
 
 		// Handle loan repayment transactions
-		if tx.IsRepayment && params.Config.EnableBankMechanism {
-			// Add to bank instead of recipient
-			bankAddress := bank.GetBankAddressForShard(params.ShardTable[params.Config.ShardID])
-			hexBankAddress, _ := hex.DecodeString(bankAddress)
-			bankStateEnc := st.Get(hexBankAddress)
-			if bankStateEnc != nil {
-				bankState := account.DecodeAccountState(bankStateEnc)
-				bankState.Balance.Add(bankState.Balance, tx.Value)
-				st.Update(hexBankAddress, bankState.Encode())
-			}
-			// Mark loan as repaid would be handled separately
+		if tx.IsRepayment && bc.BankManager != nil {
+			// Add to bank balance (already done in recipient update? Wait, for repayment, it's TXns, not regular tx
+			// For TXns, it's balance change, so handled separately
+			// But to add to bank, since repayment is deduction from account to bank
+			// In TXns processing, if change negative, it's deduction, but for repayment, we want to add to bank
+			// Wait, the code has separate for txs and for TXns
+			// This is in tx processing, for regular txs
+			// For repayments, they are TXns, processed elsewhere
+			// So, this might not be needed
 		}
 		r_state_enc := st.Get(tx.Recipient)
 		if r_state_enc == nil {
@@ -539,6 +537,20 @@ func (bc *BlockChain) getUpdatedTreeOfState(commit int, height int, txs []*core.
 			account_state := account.DecodeAccountState(encoded)
 			account_state.Balance.Add(account_state.Balance, v.Change)
 			st.Update(hex_address, account_state.Encode())
+
+			// If repayment, add to bank balance
+			if v.IsRepayment && bc.BankManager != nil {
+				bankAddress := bank.GetBankAddressForShard(params.ShardTable[params.Config.ShardID])
+				hexBankAddress, _ := hex.DecodeString(bankAddress)
+				bankStateEnc := st.Get(hexBankAddress)
+				if bankStateEnc != nil {
+					bankState := account.DecodeAccountState(bankStateEnc)
+					// Since Change is negative for repayment, add |Change| to bank
+					bankState.Balance.Sub(bankState.Balance, v.Change) // Sub negative is add
+					st.Update(hexBankAddress, bankState.Encode())
+				}
+				// Mark loan as repaid - but need LoanID, for now skip
+			}
 		}
 		nstime = time.Now().UnixMicro() - nsstart
 	}

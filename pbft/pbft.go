@@ -47,6 +47,8 @@ type node struct {
 type Pbft struct {
 	//节点信息
 	Node node
+	// Bank manager for this shard
+	BankManager *bank.BankManager
 	//每笔请求自增序号
 	sequenceID int
 	//锁
@@ -102,13 +104,10 @@ func NewPBFT() *Pbft {
 
 	p.Node.CurChain, _ = chain.NewBlockChain(config)
 
-	// Initialize bank communication if bank mechanism is enabled
+	// Initialize bank manager if bank mechanism is enabled
 	if config.EnableBankMechanism && p.Node.CurChain != nil {
-		// Try to get bank manager from blockchain
-		if p.Node.CurChain.BankManager != nil {
-			p.BankComm = p.Node.CurChain.BankManager.Communication
-			log.Printf("Initialized bank communication for shard %s", config.ShardID)
-		}
+		p.BankManager = p.Node.CurChain.BankManager
+		log.Printf("Initialized bank manager for shard %s", config.ShardID)
 	}
 	p.sequenceID = p.Node.CurChain.CurrentBlock.Header.Number + 1
 	p.messagePool = make(map[string]*Request)

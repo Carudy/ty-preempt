@@ -13,30 +13,31 @@ import (
 )
 
 type Transaction struct {
-	Sender             []byte `json:"sender"`
-	Recipient          []byte `json:"recipient"`
-	TxHash             []byte
-	Id                 int
-	Success            bool
-	IsRelay            bool
-	SenLock            bool
-	RecLock            bool
-	Value              *big.Int `json:"value"`
-	RequestTime        int64
-	Second_RequestTime int64
-	CommitTime         int64
-	LockTime           int64
-	UnlockTime         int64
-	LockTime2          int64
-	UnlockTime2        int64
-	HalfLock           bool
-	Rec_Suppose_on_chain   int
-	Sen_Suppose_on_chain   int
-	Relay_Lock         bool
-	IsBankLoan      bool   // Transaction represents bank loan
-	IsRepayment     bool   // Transaction is loan repayment
-	LoanID          string // Reference to loan record
-	BankAddress     []byte // Which bank is involved
+	Sender               []byte `json:"sender"`
+	Recipient            []byte `json:"recipient"`
+	TxHash               []byte
+	Id                   int
+	Success              bool
+	IsRelay              bool
+	SenLock              bool
+	RecLock              bool
+	Value                *big.Int `json:"value"`
+	RequestTime          int64
+	Second_RequestTime   int64
+	CommitTime           int64
+	LockTime             int64
+	UnlockTime           int64
+	LockTime2            int64
+	UnlockTime2          int64
+	HalfLock             bool
+	Rec_Suppose_on_chain int
+	Sen_Suppose_on_chain int
+	Relay_Lock           bool
+	IsBankLoan           bool   // Transaction represents bank loan
+	IsRepayment          bool   // Transaction is loan repayment
+	LoanID               string // Reference to loan record
+	BankAddress          []byte // Which bank is involved
+	TargetShard          int    // Target shard for migration loans
 }
 
 func (tx *Transaction) PrintTx() {

@@ -2,6 +2,7 @@ package core
 
 import (
 	"blockEmulator/account"
+	"blockEmulator/bank"
 	"blockEmulator/params"
 	"blockEmulator/utils"
 	"encoding/hex"
@@ -202,6 +203,8 @@ func (pool *Tx_pool) FetchTxs2Pack(left_count, blockNumber int) (txs []*Transact
 						loanAggregator[from].Add(loanAggregator[from], v.Value)
 					}
 					v.IsBankLoan = true
+					v.TargetShard = account.Account2Shard[from]
+					v.BankAddress = []byte(bank.GetBankAddressForShard(params.ShardTable[config.ShardID]))
 					v.Success = true
 					txs = append(txs, v)
 				} else {
@@ -212,7 +215,7 @@ func (pool *Tx_pool) FetchTxs2Pack(left_count, blockNumber int) (txs []*Transact
 						v.LockTime = time.Now().UnixMilli()
 					}
 					v.SenLock = true
-					if config.Not_Lock_immediately && v.Sen_Suppose_on_chain==0{
+					if config.Not_Lock_immediately && v.Sen_Suppose_on_chain == 0 {
 						v.Sen_Suppose_on_chain = blockNumber
 					}
 					pool.Locking_TX_Pools[from] = append(pool.Locking_TX_Pools[from], v)
@@ -226,13 +229,13 @@ func (pool *Tx_pool) FetchTxs2Pack(left_count, blockNumber int) (txs []*Transact
 						v.LockTime = time.Now().UnixMilli()
 					}
 					v.RecLock = true
-					if config.Not_Lock_immediately && v.Rec_Suppose_on_chain==0{
+					if config.Not_Lock_immediately && v.Rec_Suppose_on_chain == 0 {
 						v.Rec_Suppose_on_chain = blockNumber
 					}
 					pool.Locking_TX_Pools[to] = append(pool.Locking_TX_Pools[to], v)
 					account.Lock_Acc_Lock.Unlock()
 					continue
-				}else {
+				} else {
 					encoded := v.Encode()
 					decoded := DecodeTx(encoded)
 					// txs = append(txs, decoded)
@@ -244,7 +247,7 @@ func (pool *Tx_pool) FetchTxs2Pack(left_count, blockNumber int) (txs []*Transact
 						decoded.LockTime = time.Now().UnixMilli()
 					}
 					decoded.RecLock = true
-					if config.Not_Lock_immediately && decoded.Rec_Suppose_on_chain==0{
+					if config.Not_Lock_immediately && decoded.Rec_Suppose_on_chain == 0 {
 						decoded.Rec_Suppose_on_chain = blockNumber
 					}
 					decoded.Relay_Lock = true
@@ -263,7 +266,7 @@ func (pool *Tx_pool) FetchTxs2Pack(left_count, blockNumber int) (txs []*Transact
 					v.LockTime = time.Now().UnixMilli()
 				}
 				v.SenLock = true
-				if config.Not_Lock_immediately && v.Sen_Suppose_on_chain==0{
+				if config.Not_Lock_immediately && v.Sen_Suppose_on_chain == 0 {
 					v.Sen_Suppose_on_chain = blockNumber
 				}
 				pool.Outing_Before_Announce_TX_Pools[from] = append(pool.Outing_Before_Announce_TX_Pools[from], v)
