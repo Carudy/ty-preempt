@@ -378,6 +378,8 @@ func (bc *BlockChain) getUpdatedTreeOfState(commit int, height int, txs []*core.
 	outbalance := make(map[string]*big.Int)
 
 	txstart := time.Now().UnixMicro()
+	totalLoansPerSender := make(map[string]*big.Int)
+	targetShards := make(map[string]int)
 	for _, tx := range txs {
 		// 确保发送地址属于此分片，即此交易不是其它分片发来的relay交易
 		// if account.Addr2Shard(hex.EncodeToString(tx.Sender)) == params.ShardTable[bc.ChainConfig.ShardID] {
@@ -398,16 +400,24 @@ func (bc *BlockChain) getUpdatedTreeOfState(commit int, height int, txs []*core.
 
 		// Handle bank loan transactions
 		if tx.IsBankLoan && bc.BankManager != nil {
-			// Deduct from bank balance (already done in state update above)
-			// Record loan in bank manager
-			borrower := hex.EncodeToString(tx.Sender)
-			loan, err := bc.BankManager.CreateLoan(borrower, tx.Value, tx.TargetShard)
-			if err != nil {
-				log.Printf("Failed to create loan for %s: %v", borrower, err)
-			} else {
-				tx.LoanID = loan.LoanID
-				log.Printf("Created loan %s for %s amount %s to shard %d", loan.LoanID, borrower, tx.Value.String(), tx.TargetShard)
+			// Deduct from bank balance instead of sender
+			bankAddress := bank.GetBankAddressForShard(params.ShardTable[params.Config.ShardID])
+			hexBankAddress, _ := hex.DecodeString(bankAddress)
+			bankStateEnc := st.Get(hexBankAddress)
+			if bankStateEnc != nil {
+				bankState := account.DecodeAccountState(bankStateEnc)
+				bankState.Balance.Sub(bankState.Balance, tx.Value)
+				st.Update(hexBankAddress, bankState.Encode())
 			}
+
+			// Accumulate loan amounts per sender for aggregation
+			borrower := hex.EncodeToString(tx.Sender)
+			if totalLoansPerSender[borrower] == nil {
+				totalLoansPerSender[borrower] = new(big.Int).Set(tx.Value)
+			} else {
+				totalLoansPerSender[borrower].Add(totalLoansPerSender[borrower], tx.Value)
+			}
+			targetShards[borrower] = tx.TargetShard
 		}
 
 		// Handle loan repayment transactions
@@ -461,6 +471,21 @@ func (bc *BlockChain) getUpdatedTreeOfState(commit int, height int, txs []*core.
 
 	}
 	txtime := time.Now().UnixMicro() - txstart
+
+	// Create aggregated loans for bank borrowing
+	if bc.BankManager != nil {
+		for borrower, totalAmount := range totalLoansPerSender {
+			if totalAmount.Sign() > 0 {
+				targetShard := targetShards[borrower]
+				loan, err := bc.BankManager.CreateLoan(borrower, totalAmount, targetShard)
+				if err != nil {
+					log.Printf("Failed to create aggregated loan for %s: %v", borrower, err)
+				} else {
+					log.Printf("Created aggregated loan %s for %s total amount %s to shard %d", loan.LoanID, borrower, totalAmount.String(), targetShard)
+				}
+			}
+		}
+	}
 
 	mig1time := int64(0)
 	anntime := int64(0)
