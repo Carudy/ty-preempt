@@ -2,6 +2,7 @@ package pbft
 
 import (
 	"blockEmulator/account"
+	"blockEmulator/bank"
 	"blockEmulator/core"
 	"blockEmulator/params"
 	"blockEmulator/utils"
@@ -34,6 +35,11 @@ var (
 	sure_count_lock      sync.Mutex
 	epochchangeStartTime int64
 	sendoutfinish        chan int
+	// Bank loan tracking for incoming migrations
+	incoming_loans      map[string]*big.Int // address -> loan amount
+	incoming_loan_ids   map[string]string   // address -> loan ID
+	incoming_bank_shard int                 // Source bank shard for loans
+	incoming_loans_lock sync.Mutex
 )
 
 // func (p *Pbft) mpropose(new map[string]int) {
@@ -207,6 +213,12 @@ func (p *Pbft) SendOut(out map[string]int) {
 			if outpool[shard] == nil {
 				outpool[shard] = &BalancesAndPendings{}
 				outpool[shard].List = make(map[string]*BalanceAndPending)
+				outpool[shard].Loans = make(map[string]*big.Int)
+				outpool[shard].LoanIDs = make(map[string]string)
+				outpool[shard].SourceBankShard, _ = bank.GetShardIDFromString(config.ShardID)
+				outpool[shard].Loans = make(map[string]*big.Int)
+				outpool[shard].LoanIDs = make(map[string]string)
+				outpool[shard].SourceBankShard, _ = bank.GetShardIDFromString(config.ShardID)
 			}
 			if _, ok2 := outpool[shard].List[hex.EncodeToString(tx.Sender)]; !ok2 {
 				encoded_state := st.Get(tx.Sender)
@@ -216,6 +228,16 @@ func (p *Pbft) SendOut(out map[string]int) {
 				state := account.DecodeAccountState(encoded_state)
 				balance := new(big.Int).Set(state.Balance)
 				outpool[shard].List[hex.EncodeToString(tx.Sender)] = &BalanceAndPending{Balance: balance, PendingTxs: []*core.Transaction{}}
+				// Add loan data if bank mechanism is enabled
+				if config.EnableBankMechanism {
+					loans, loanIDs, _ := bank.GetLoanInfoForAccount(hex.EncodeToString(tx.Sender), params.ShardTable[config.ShardID])
+					for k, v := range loans {
+						outpool[shard].Loans[k] = v
+					}
+					for k, v := range loanIDs {
+						outpool[shard].LoanIDs[k] = v
+					}
+				}
 			}
 			outpool[shard].List[hex.EncodeToString(tx.Sender)].PendingTxs = append(outpool[shard].List[hex.EncodeToString(tx.Sender)].PendingTxs, tx)
 			continue
@@ -226,6 +248,12 @@ func (p *Pbft) SendOut(out map[string]int) {
 			if outpool[shard] == nil {
 				outpool[shard] = &BalancesAndPendings{}
 				outpool[shard].List = make(map[string]*BalanceAndPending)
+				outpool[shard].Loans = make(map[string]*big.Int)
+				outpool[shard].LoanIDs = make(map[string]string)
+				outpool[shard].SourceBankShard, _ = bank.GetShardIDFromString(config.ShardID)
+				outpool[shard].Loans = make(map[string]*big.Int)
+				outpool[shard].LoanIDs = make(map[string]string)
+				outpool[shard].SourceBankShard, _ = bank.GetShardIDFromString(config.ShardID)
 			}
 			if _, ok2 := outpool[shard].List[hex.EncodeToString(tx.Recipient)]; !ok2 {
 				encoded_state := st.Get(tx.Recipient)
@@ -235,6 +263,16 @@ func (p *Pbft) SendOut(out map[string]int) {
 				state := account.DecodeAccountState(encoded_state)
 				balance := state.Balance
 				outpool[shard].List[hex.EncodeToString(tx.Recipient)] = &BalanceAndPending{Balance: balance, PendingTxs: []*core.Transaction{}}
+				// Add loan data if bank mechanism is enabled
+				if config.EnableBankMechanism {
+					loans, loanIDs, _ := bank.GetLoanInfoForAccount(hex.EncodeToString(tx.Recipient), params.ShardTable[config.ShardID])
+					for k, v := range loans {
+						outpool[shard].Loans[k] = v
+					}
+					for k, v := range loanIDs {
+						outpool[shard].LoanIDs[k] = v
+					}
+				}
 			}
 			outpool[shard].List[hex.EncodeToString(tx.Recipient)].PendingTxs = append(outpool[shard].List[hex.EncodeToString(tx.Recipient)].PendingTxs, tx)
 			continue
@@ -252,9 +290,28 @@ func (p *Pbft) SendOut(out map[string]int) {
 		if outpool[shard] == nil {
 			outpool[shard] = &BalancesAndPendings{}
 			outpool[shard].List = make(map[string]*BalanceAndPending)
+			outpool[shard].Loans = make(map[string]*big.Int)
+			outpool[shard].LoanIDs = make(map[string]string)
+			outpool[shard].SourceBankShard, _ = bank.GetShardIDFromString(config.ShardID)
+			outpool[shard].Loans = make(map[string]*big.Int)
+			outpool[shard].LoanIDs = make(map[string]string)
+			outpool[shard].SourceBankShard, _ = bank.GetShardIDFromString(config.ShardID)
+			outpool[shard].Loans = make(map[string]*big.Int)
+			outpool[shard].LoanIDs = make(map[string]string)
+			outpool[shard].SourceBankShard, _ = bank.GetShardIDFromString(config.ShardID)
 		}
 		if _, ok := outpool[shard].List[addr]; !ok {
 			outpool[shard].List[addr] = &BalanceAndPending{Balance: big.NewInt(0), PendingTxs: []*core.Transaction{}}
+			// Add loan data if bank mechanism is enabled
+			if config.EnableBankMechanism {
+				loans, loanIDs, _ := bank.GetLoanInfoForAccount(addr, params.ShardTable[config.ShardID])
+				for k, v := range loans {
+					outpool[shard].Loans[k] = v
+				}
+				for k, v := range loanIDs {
+					outpool[shard].LoanIDs[k] = v
+				}
+			}
 		}
 	}
 	fmt.Printf("\n%vms\n\n", time.Now().UnixMicro()-ccc)
@@ -329,6 +386,32 @@ func (p *Pbft) handleBalancesAndPendings(content []byte) {
 	fmt.Printf("\n本节点已接收到分片%v发来的账户状态和交易 \n\n", baps.ShardID)
 
 	inacc_count_lock.Lock()
+	// Store loan information for later repayment scheduling
+	if params.Config.EnableBankMechanism && len(baps.Loans) > 0 {
+		incoming_loans_lock.Lock()
+		if incoming_loans == nil {
+			incoming_loans = make(map[string]*big.Int)
+			incoming_loan_ids = make(map[string]string)
+		}
+		for addr, loanAmount := range baps.Loans {
+			incoming_loans[addr] = loanAmount
+			if loanID, ok := baps.LoanIDs[addr]; ok {
+				incoming_loan_ids[addr] = loanID
+			}
+		}
+		incoming_bank_shard = baps.SourceBankShard
+		incoming_loans_lock.Unlock()
+
+		fmt.Printf("\n收到迁移账户的贷款信息，贷款账户数量：%d \n\n", len(baps.Loans))
+		for addr, loanAmount := range baps.Loans {
+			loanID, ok := baps.LoanIDs[addr]
+			if !ok {
+				loanID = "unknown"
+			}
+			fmt.Printf("账户 %s 有贷款：%s，贷款ID：%s，来自源分片：%d\n", addr, loanAmount.String(), loanID, baps.SourceBankShard)
+		}
+	}
+
 	//将pending放入intx池，将acc放入intacc池
 	for addr, bap := range baps.List {
 		inacc_pool = append(inacc_pool, &address_and_balance{Address: addr, Balance: bap.Balance})

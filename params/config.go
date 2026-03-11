@@ -2,6 +2,7 @@ package params
 
 import (
 	"log"
+	"math/big"
 	"strconv"
 )
 
@@ -42,6 +43,13 @@ type ChainConfig struct {
 	OnlyOnce                 int    //1只迁移1次，否则设为1000000
 	Not_Lock_immediately     bool
 	RelayLock                bool
+
+	// Bank mechanism configuration
+	EnableBankMechanism bool     // Enable/disable bank mechanism
+	BankInitialBalance  *big.Int // Initial balance for bank account
+	BankInterestRate    *big.Int // Interest rate (1e18 = 100%)
+	MaxLoanPerAccount   *big.Int // Maximum loan amount per account
+	LoanRepaymentPeriod uint64   // Blocks until repayment is due
 }
 
 var (
@@ -120,6 +128,13 @@ var (
 		OnlyOnce:                 100,
 		Not_Lock_immediately:     true,
 		RelayLock:                true,
+
+		// Bank mechanism defaults (disabled by default)
+		EnableBankMechanism: true,
+		BankInitialBalance:  new(big.Int).SetBytes([]byte{0x88, 0xB0, 0xA4, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}), // ~1M tokens (1,000,000 * 1e18)
+		BankInterestRate:    big.NewInt(1000000000000000000),                                                                                                                // 0% interest (1e18 = 100%)
+		MaxLoanPerAccount:   new(big.Int).SetBytes([]byte{0x36, 0x35, 0xC9, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}),                                    // 1000 tokens
+		LoanRepaymentPeriod: 100,                                                                                                                                            // 100 blocks to repay
 	}
 
 	Init_addrs          = []string{}

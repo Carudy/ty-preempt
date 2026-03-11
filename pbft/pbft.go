@@ -3,6 +3,7 @@ package pbft
 import (
 	"blockEmulator/account"
 	"blockEmulator/algorithm"
+	"blockEmulator/bank"
 	"blockEmulator/chain"
 	"blockEmulator/core"
 	"blockEmulator/params"
@@ -88,6 +89,9 @@ type Pbft struct {
 
 	// 延迟发送tryout，因此要有个池子存着
 	TryOutPool [][]*core.TXmig2
+
+	// Bank communication for cross-shard loan coordination
+	BankComm *bank.BankCommunication
 }
 
 func NewPBFT() *Pbft {
@@ -97,6 +101,15 @@ func NewPBFT() *Pbft {
 	p.Node.addr = params.NodeTable[config.ShardID][config.NodeID]
 
 	p.Node.CurChain, _ = chain.NewBlockChain(config)
+
+	// Initialize bank communication if bank mechanism is enabled
+	if config.EnableBankMechanism && p.Node.CurChain != nil {
+		// Try to get bank manager from blockchain
+		if p.Node.CurChain.BankManager != nil {
+			p.BankComm = p.Node.CurChain.BankManager.Communication
+			log.Printf("Initialized bank communication for shard %s", config.ShardID)
+		}
+	}
 	p.sequenceID = p.Node.CurChain.CurrentBlock.Header.Number + 1
 	p.messagePool = make(map[string]*Request)
 	p.prePareConfirmCount = make(map[string]map[string]bool)
@@ -220,6 +233,8 @@ func (p *Pbft) handleRequest(data []byte) {
 		p.Stop <- 1
 	case cLLT:
 		p.handleLLT(content)
+	case cBankMessage:
+		go p.handleBankMessage(content)
 	}
 }
 
@@ -816,6 +831,11 @@ func (p *Pbft) handleCommit(content []byte) {
 					account.Account2ShardLock.Lock()
 					account.AccountInOwnShard[v.Address] = true
 					account.Account2ShardLock.Unlock()
+				}
+
+				// Schedule loan repayments for migrated accounts if bank mechanism is enabled
+				if params.Config.EnableBankMechanism {
+					p.scheduleRepayments()
 				}
 				// commit the memory trie to the database in the disk
 				rt, ns := st.Commit(false)
@@ -1694,4 +1714,135 @@ func (p *Pbft) handleLLT(content []byte) {
 	fmt.Printf("本节点已接收到客户端发送的初始时间：%v\n", inittime)
 	InitTime = inittime
 	core.InitTime = inittime
+}
+
+// handleBankMessage processes incoming bank messages
+func (p *Pbft) handleBankMessage(content []byte) {
+	// Simple wrapper to identify target shard
+	type BankMessageWrapper struct {
+		Message []byte
+		ShardID int
+	}
+
+	var wrapper BankMessageWrapper
+	if err := json.Unmarshal(content, &wrapper); err != nil {
+		log.Printf("Failed to unmarshal bank message wrapper: %v", err)
+		return
+	}
+
+	// Only process if it's for our shard
+	// Convert string shard ID (e.g., "S0") to integer for comparison
+	currentShardInt, err := bank.GetShardIDFromString(params.Config.ShardID)
+	if err != nil {
+		log.Printf("Failed to parse current shard ID %s: %v", params.Config.ShardID, err)
+		return
+	}
+	if wrapper.ShardID == currentShardInt {
+		var bankMsg bank.BankMessage
+		if err := json.Unmarshal(wrapper.Message, &bankMsg); err != nil {
+			log.Printf("Failed to unmarshal inner bank message: %v", err)
+			return
+		}
+
+		// Route to bank communication system
+		if p.BankComm != nil {
+			if err := p.BankComm.HandleMessage(bankMsg); err != nil {
+				log.Printf("Failed to handle bank message: %v", err)
+			} else {
+				log.Printf("Bank shard %s processed %s message from shard %d",
+					params.Config.ShardID, bankMsg.Type, bankMsg.Sender)
+			}
+		} else {
+			log.Printf("Bank communication not initialized for shard %s", params.Config.ShardID)
+		}
+	}
+}
+
+// scheduleRepayments creates repayment transactions for migrated accounts with loans
+func (p *Pbft) scheduleRepayments() {
+	if !params.Config.EnableBankMechanism {
+		return
+	}
+
+	// Check if we have incoming loans to process
+	incoming_loans_lock.Lock()
+	defer incoming_loans_lock.Unlock()
+
+	if len(incoming_loans) == 0 {
+		return
+	}
+
+	fmt.Printf("\n开始为 %d 个迁移账户安排贷款还款\n", len(incoming_loans))
+
+	// Get local bank address
+	localBankShard, err := bank.GetShardIDFromString(params.Config.ShardID)
+	if err != nil {
+		log.Printf("无法获取本地分片ID: %v", err)
+		return
+	}
+
+	// Get bank address for this shard
+	bankAddressHex := bank.GetBankAddressForShard(localBankShard)
+	if bankAddressHex == "" {
+		log.Printf("无法获取分片 %d 的银行地址", localBankShard)
+		return
+	}
+	// Decode hex string to bytes
+	bankAddress, err := hex.DecodeString(bankAddressHex)
+	if err != nil {
+		log.Printf("无法解码银行地址 %s: %v", bankAddressHex, err)
+		return
+	}
+
+	for addr, loanAmount := range incoming_loans {
+		loanID, ok := incoming_loan_ids[addr]
+		if !ok {
+			loanID = fmt.Sprintf("loan-%s-%d", addr, time.Now().UnixNano())
+		}
+
+		// Calculate repayment amount (principal + interest)
+		repaymentAmount := new(big.Int).Set(loanAmount)
+		if params.Config.BankInterestRate != nil && params.Config.BankInterestRate.Cmp(big.NewInt(0)) > 0 {
+			// Apply interest: repayment = loan * (1 + interestRate)
+			interest := new(big.Int).Mul(loanAmount, params.Config.BankInterestRate)
+			interest.Div(interest, big.NewInt(1000000000000000000)) // Divide by 1e18 for percentage
+			repaymentAmount.Add(repaymentAmount, interest)
+		}
+
+		fmt.Printf("为账户 %s 安排还款: 贷款 %s, 还款 %s, 贷款ID: %s\n",
+			addr, loanAmount.String(), repaymentAmount.String(), loanID)
+
+		// Decode borrower address from hex string
+		borrowerAddr, err := hex.DecodeString(addr)
+		if err != nil {
+			log.Printf("无法解码借款人地址 %s: %v", addr, err)
+			continue
+		}
+
+		// Create repayment transaction
+		repaymentTx := &core.Transaction{
+			Sender:      borrowerAddr,
+			Recipient:   bankAddress,
+			Value:       repaymentAmount,
+			IsRepayment: true,
+			LoanID:      loanID,
+			BankAddress: bankAddress,
+			RequestTime: time.Now().UnixMilli(),
+		}
+
+		// Add to transaction pool
+		p.Node.CurChain.Tx_pool.Lock.Lock()
+		p.Node.CurChain.Tx_pool.Queue = append(p.Node.CurChain.Tx_pool.Queue, repaymentTx)
+		p.Node.CurChain.Tx_pool.Lock.Unlock()
+
+		// Record the loan in local bank for tracking
+		bank.RecordIncomingLoan(addr, loanAmount, loanID, incoming_bank_shard, localBankShard)
+	}
+
+	// Clear the incoming loans after scheduling
+	incoming_loans = make(map[string]*big.Int)
+	incoming_loan_ids = make(map[string]string)
+	incoming_bank_shard = 0
+
+	fmt.Println("贷款还款安排完成")
 }

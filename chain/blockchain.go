@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"blockEmulator/account"
+	"blockEmulator/bank"
 	"blockEmulator/core"
 	"blockEmulator/params"
 	"blockEmulator/storage"
@@ -49,6 +50,8 @@ type BlockChain struct {
 	TXann_pool *core.TXann_pool
 
 	TXns_pool *core.TXns_pool
+
+	BankManager *bank.BankManager // Bank manager for loan operations
 }
 
 func NewBlockChain(chainConfig *params.ChainConfig) (*BlockChain, error) {
@@ -83,6 +86,14 @@ func NewBlockChain(chainConfig *params.ChainConfig) (*BlockChain, error) {
 		TXmig2_pool: core.NewTXmig2Pool(),
 		TXann_pool:  core.NewTXannPool(),
 		TXns_pool:   core.NewTXnsPool(),
+	}
+
+	// Initialize bank manager if bank mechanism is enabled
+	if chainConfig.EnableBankMechanism {
+		shardID := params.ShardTable[chainConfig.ShardID]
+		bc.BankManager = bank.NewBankManager(shardID, chainConfig.BankInitialBalance)
+		log.Printf("Initialized bank manager for shard %d with balance %s",
+			shardID, chainConfig.BankInitialBalance.String())
 	}
 	//filepath
 	fp := "./record/triedb/" + chainConfig.ShardID + "_" + chainConfig.NodeID
@@ -146,7 +157,7 @@ func (bc *BlockChain) AddBlock(block *core.Block) map[string]*big.Int {
 
 	updatetree := time.Now().UnixMilli()
 	stateroothash, outbalance := bc.getUpdatedTreeOfState(1, block.Header.Number, block.Transactions, block.TXmig1s, block.TXmig2s, block.Anns, block.NSs)
-	if !bytes.Equal(block.Header.StateRoot, stateroothash){
+	if !bytes.Equal(block.Header.StateRoot, stateroothash) {
 		log.Panicf("二者不等，Ins长度为%v\n", len(block.TXmig2s))
 	}
 	fmt.Printf("更新树花时间为: %v\n", time.Now().UnixMilli()-updatetree)
@@ -287,10 +298,10 @@ func (bc *BlockChain) GenerateBlock(id int) *core.Block {
 		}
 	} else if (!params.Config.Bu_Tong_Bi_Li && !params.Config.Bu_Tong_Shi_Jian && !params.Config.Fail && !params.Config.Cross_Chain) || id != 1 {
 		if params.Config.Algorithm || params.Config.Pressure {
-			txs, queueLen = bc.Tx_pool.FetchTxs2Pack(params.Config.MaxBlockSize - len(mig1s) - len(mig2s) - len(anns) - len(nss), bc.CurrentBlock.Header.Number + 1)
+			txs, queueLen = bc.Tx_pool.FetchTxs2Pack(params.Config.MaxBlockSize-len(mig1s)-len(mig2s)-len(anns)-len(nss), bc.CurrentBlock.Header.Number+1)
 		} else {
-			txs, queueLen = bc.Tx_pool.FetchTxs2Pack(params.Config.MaxBlockSize - len(mig1s) - len(mig2s) - len(anns) - len(nss), bc.CurrentBlock.Header.Number + 1)
-			// txs = bc.Tx_pool.FetchTxs2Pack(params.Config.MaxBlockSize - params.Config.MaxMigSize + quota)
+			txs, queueLen = bc.Tx_pool.FetchTxs2Pack(params.Config.MaxBlockSize-len(mig1s)-len(mig2s)-len(anns)-len(nss), bc.CurrentBlock.Header.Number+1)
+			// txs = bc.Tx_pool.FetchTxs2Pack(params.Config.MaxBlockSize - parasConfig.MaxiSize + quoa
 		}
 	}
 
@@ -316,13 +327,13 @@ func (bc *BlockChain) GenerateBlock(id int) *core.Block {
 	if !params.Config.Stop_When_Migrating {
 		if !params.Config.Lock_Acc_When_Migrating {
 			account.Outing_Acc_Before_Announce_Lock.Lock()
-			for _,lockedtxs := range bc.Tx_pool.Outing_Before_Announce_TX_Pools {
+			for _, lockedtxs := range bc.Tx_pool.Outing_Before_Announce_TX_Pools {
 				queueLen += len(lockedtxs)
 			}
 			account.Outing_Acc_Before_Announce_Lock.Unlock()
-		}else {
+		} else {
 			account.Lock_Acc_Lock.Lock()
-			for _,lockedtxs := range bc.Tx_pool.Locking_TX_Pools {
+			for _, lockedtxs := range bc.Tx_pool.Locking_TX_Pools {
 				queueLen += len(lockedtxs)
 			}
 			account.Lock_Acc_Lock.Unlock()
@@ -385,7 +396,33 @@ func (bc *BlockChain) getUpdatedTreeOfState(commit int, height int, txs []*core.
 			st.Update(tx.Sender, account_state.Encode())
 		}
 
+		// Handle bank loan transactions
+		if tx.IsBankLoan && params.Config.EnableBankMechanism {
+			// Deduct from bank instead of sender
+			bankAddress := bank.GetBankAddressForShard(params.ShardTable[params.Config.ShardID])
+			hexBankAddress, _ := hex.DecodeString(bankAddress)
+			bankStateEnc := st.Get(hexBankAddress)
+			if bankStateEnc != nil {
+				bankState := account.DecodeAccountState(bankStateEnc)
+				bankState.Balance.Sub(bankState.Balance, tx.Value)
+				st.Update(hexBankAddress, bankState.Encode())
+			}
+			// Record loan would be handled separately
+		}
 
+		// Handle loan repayment transactions
+		if tx.IsRepayment && params.Config.EnableBankMechanism {
+			// Add to bank instead of recipient
+			bankAddress := bank.GetBankAddressForShard(params.ShardTable[params.Config.ShardID])
+			hexBankAddress, _ := hex.DecodeString(bankAddress)
+			bankStateEnc := st.Get(hexBankAddress)
+			if bankStateEnc != nil {
+				bankState := account.DecodeAccountState(bankStateEnc)
+				bankState.Balance.Add(bankState.Balance, tx.Value)
+				st.Update(hexBankAddress, bankState.Encode())
+			}
+			// Mark loan as repaid would be handled separately
+		}
 		r_state_enc := st.Get(tx.Recipient)
 		if r_state_enc == nil {
 			fmt.Printf("rec属于该分片吗：%v\n", account.AccountInOwnShard[hex.EncodeToString(tx.Recipient)])
@@ -399,7 +436,7 @@ func (bc *BlockChain) getUpdatedTreeOfState(commit int, height int, txs []*core.
 		if account_state.Location != params.ShardTable[bc.ChainConfig.ShardID] {
 			continue
 			// 接收者为锁定账户，不对该状态进行修改
-		} else if account_state.Migrate != -1 && params.Config.Lock_Acc_When_Migrating{
+		} else if account_state.Migrate != -1 && params.Config.Lock_Acc_When_Migrating {
 			continue
 		}
 
@@ -417,7 +454,6 @@ func (bc *BlockChain) getUpdatedTreeOfState(commit int, height int, txs []*core.
 		// 	}
 		// 	account.Lock_Acc_Lock.Unlock()
 		// }
-
 
 		account_state.Balance.Add(account_state.Balance, tx.Value)
 		if commit == 1 && account_state.Migrate != -1 {
@@ -629,6 +665,25 @@ func (bc *BlockChain) genesisStateTree(stateroot []byte) []byte {
 		}
 		hex_address, _ := hex.DecodeString(address)
 		st.Update(hex_address, accountState.Encode())
+	}
+
+	// Initialize bank account if bank mechanism is enabled
+	if params.Config.EnableBankMechanism {
+		bankAddress := bank.GetBankAddressForShard(params.ShardTable[params.Config.ShardID])
+		bankState := &account.AccountState{
+			Balance:  new(big.Int).Set(params.Config.BankInitialBalance),
+			Migrate:  -1,
+			Location: params.ShardTable[params.Config.ShardID],
+		}
+		hexBankAddress, _ := hex.DecodeString(bankAddress)
+		st.Update(hexBankAddress, bankState.Encode())
+
+		// Add bank to Account2Shard and AccountInOwnShard mappings
+		account.Account2Shard[bankAddress] = params.ShardTable[params.Config.ShardID]
+		account.AccountInOwnShard[bankAddress] = true
+
+		log.Printf("Initialized bank account for shard %s with address %s and balance %s",
+			params.Config.ShardID, bankAddress, params.Config.BankInitialBalance.String())
 	}
 	// commit the memory trie to the database in the disk
 	rt, ns := st.Commit(false)

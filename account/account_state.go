@@ -19,43 +19,40 @@ type AccountState struct {
 	Balance *big.Int
 	// Root     []byte // merkle root of the storage trie
 	// CodeHash []byte
-	Migrate int
+	Migrate  int
 	Location int
 }
 
 var Account2ShardLock sync.Mutex
 
-//  账户到分片的映射
-var Account2Shard map[string]int
+// 账户到分片的映射
+var Account2Shard = make(map[string]int)
 
-//  本分片的账户
-var AccountInOwnShard map[string]bool
+// 本分片的账户
+var AccountInOwnShard = make(map[string]bool)
 
 var BalanceBeforeOutLock sync.Mutex
 
-//  正在迁出的账户在Out1时的余额
-var BalanceBeforeOut map[string]*big.Int
+// 正在迁出的账户在Out1时的余额
+var BalanceBeforeOut = make(map[string]*big.Int)
 
 var ComingAccountLock sync.Mutex
 
-
 var Outing_Acc_Before_Announce_Lock sync.Mutex
 
-//  正在迁出且已经还没到Announce的账户，交易池中这类账户发起的交易不会被打包，而是到专门的内存Outing_TX中
-var Outing_Acc_Before_Announce map[string]bool
-
+// 正在迁出且已经还没到Announce的账户，交易池中这类账户发起的交易不会被打包，而是到专门的内存Outing_TX中
+var Outing_Acc_Before_Announce = make(map[string]bool)
 
 var Outing_Acc_After_Announce_Lock sync.Mutex
 
-//  正在迁出且已经收到Announce的账户，这类账户的交易不会进入交易池，而是到专门的内存Outing_TX中
-var Outing_Acc_After_Announce map[string]bool
+// 正在迁出且已经收到Announce的账户，这类账户的交易不会进入交易池，而是到专门的内存Outing_TX中
+var Outing_Acc_After_Announce = make(map[string]bool)
 
 var Lock_Acc_Lock sync.Mutex
 
-//  迁出账户要对账户锁
-var Lock_Acc map[string]bool
+var Lock_Acc = make(map[string]bool)
 
-//  根据账户地址的出所在分片。若是旧账户
+// 根据账户地址的出所在分片。若是旧账户
 func Addr2Shard(senderAddr string) int {
 	Account2ShardLock.Lock()
 	if shardID, ok := Account2Shard[senderAddr]; ok {

@@ -170,6 +170,9 @@ func (pool *Tx_pool) FetchTxs2Pack(left_count, blockNumber int) (txs []*Transact
 	if len(pool.Queue) < left_count {
 		tx_cnt = len(pool.Queue)
 	}
+
+	// Loan aggregator for bank mechanism
+	loanAggregator := make(map[string]*big.Int)
 	txs = make([]*Transaction, 0)
 	// txs = append(txs, pool.Queue[0:tx_cnt]...)
 	for k, v := range pool.Queue {
@@ -191,17 +194,29 @@ func (pool *Tx_pool) FetchTxs2Pack(left_count, blockNumber int) (txs []*Transact
 		if config.Lock_Acc_When_Migrating {
 			account.Lock_Acc_Lock.Lock()
 			if account.Lock_Acc[from] && !v.IsRelay && !v.Relay_Lock {
-				if v.LockTime > 0 {
-					v.LockTime2 = time.Now().UnixMilli()
+				if config.EnableBankMechanism {
+					// Bank mechanism: aggregate loan instead of locking
+					if loanAggregator[from] == nil {
+						loanAggregator[from] = new(big.Int).Set(v.Value)
+					} else {
+						loanAggregator[from].Add(loanAggregator[from], v.Value)
+					}
+					v.IsBankLoan = true
+					v.Success = true
+					txs = append(txs, v)
 				} else {
-					v.LockTime = time.Now().UnixMilli()
+					// Original behavior: lock transaction
+					if v.LockTime > 0 {
+						v.LockTime2 = time.Now().UnixMilli()
+					} else {
+						v.LockTime = time.Now().UnixMilli()
+					}
+					v.SenLock = true
+					if config.Not_Lock_immediately && v.Sen_Suppose_on_chain==0{
+						v.Sen_Suppose_on_chain = blockNumber
+					}
+					pool.Locking_TX_Pools[from] = append(pool.Locking_TX_Pools[from], v)
 				}
-				v.SenLock = true
-				if config.Not_Lock_immediately && v.Sen_Suppose_on_chain==0{
-					v.Sen_Suppose_on_chain = blockNumber
-				}
-				pool.Locking_TX_Pools[from] = append(pool.Locking_TX_Pools[from], v)
-				account.Lock_Acc_Lock.Unlock()
 				continue
 			} else if account.Lock_Acc[to] {
 				if !config.RelayLock {

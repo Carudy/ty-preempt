@@ -598,6 +598,28 @@ func handle(data []byte) {
 		num_of_unfinished_migration -= UnchangedState
 		num_of_unfinished_migration_lock.Unlock()
 
+	case cBalanceAndPending:
+		bap := new(BalancesAndPendings)
+		err := json.Unmarshal(content, bap)
+		if err != nil {
+			log.Panic(err)
+		}
+		fmt.Printf("Client received BalancesAndPendings from shard %s\n", bap.ShardID)
+
+		// Process loan information if bank mechanism is enabled
+		if params.Config.EnableBankMechanism && len(bap.Loans) > 0 {
+			fmt.Printf("Client received loan data: %d accounts with loans\n", len(bap.Loans))
+			for addr, loanAmount := range bap.Loans {
+				fmt.Printf("  Loan for account %s: %s\n", addr, loanAmount.String())
+			}
+			fmt.Printf("Source bank shard: %d\n", bap.SourceBankShard)
+
+			// Log the loan IDs for each account
+			if len(bap.LoanIDs) > 0 {
+				fmt.Printf("Loan IDs received: %d entries\n", len(bap.LoanIDs))
+			}
+		}
+
 	default:
 		log.Panic()
 	}

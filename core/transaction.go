@@ -33,6 +33,10 @@ type Transaction struct {
 	Rec_Suppose_on_chain   int
 	Sen_Suppose_on_chain   int
 	Relay_Lock         bool
+	IsBankLoan      bool   // Transaction represents bank loan
+	IsRepayment     bool   // Transaction is loan repayment
+	LoanID          string // Reference to loan record
+	BankAddress     []byte // Which bank is involved
 }
 
 func (tx *Transaction) PrintTx() {
